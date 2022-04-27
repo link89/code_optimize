@@ -6,7 +6,33 @@ import re
 from functools import partial
 from pathlib import Path
 import copy
-from types import CellType, FunctionType
+from types import FunctionType
+
+
+def create_path(path_list, parents=True, exit_ok=False):
+
+    for path in path_list:
+        Path(path).mkdir(parents=parents, exist_ok=exit_ok) 
+
+
+def dump_input(text, task_path, input_name, restart_dir=False):
+
+    fp = Path(task_path).absolute().joinpath(input_name)
+    
+    if not fp.exists():
+        with open(fp, "w") as f:
+            f.write(text)
+        print(f"success: dumped {str(fp)}")
+    else:
+        raise FileExistsError(f"{fp} already exists!")
+
+    if restart_dir:
+        if restart_dir == True: #restart为将要创建在工作目录下的restart路径名
+            restart_dir= "restart"
+        Path(task_path).absolute().joinpath(restart_dir).mkdir(exist_ok=True)
+        print(f"{restart_dir} path has been created.")
+
+
 
 def dummy_submit(task, disp_resource):
     #mock function for uploading calculation task to HPC and retrieve the results.
@@ -16,7 +42,7 @@ def dummy_submit(task, disp_resource):
 
 def dummy_make_func(structure, cell, basis_set, calc_type):
 
-    #a function to generate a input file for science calculations.
+    #mock function to generate a input file for science calculations.
     txt = f"{structure}\n{cell}\n{basis_set}\n{calc_type}"
 
     return txt
@@ -76,12 +102,6 @@ class RunBase():
         self._load_resource(disp_resource)
 
 
-    @property
-    def task(self):
-
-        return {"cp2k": "a dummy cp2k task"}
-
-
     def set_task_dir(self, new_task_dir):
         #检查task_dir路径相对还是绝对，最后用绝对的形式保存
 
@@ -133,9 +153,6 @@ class RunBase():
     def _prepare_task(self, **task_kwargs):
         pass
 
-    def _make_input_txt(self):
-
-        raise NotImplementedError("method not implement")
 
     def _dump_struct(self):
 
@@ -165,12 +182,10 @@ class RunBase():
             self.post_func()
 
 
-
-
     def prepare(self, return_submission_only=   False):
 
 
-            create_path([self.task_dir])
+        create_path([self.task_dir])
 
         self._prepare_symlink()
 
@@ -181,17 +196,126 @@ class RunBase():
             pass
 
         if self.make_func:
-            self._make_input_txt()
             self._dump_input()
         self.prepare_tag = True
 
     def submit(self):
         
-        dummy_submit(self.task, self.disp_resource)
+        raise NotImplementedError("method not implement")
 
-        self._post()
+
+
+
+class RunCP2K(RunBase):
+
+    def __init__(self,
+
+        work_base: str,
+        task_dir,
+        structure,
+        make_func,
+        disp_resource,
+        previous_file:list =list(),
+        post_func:FunctionType=None,
+        cell=None,  
+        mk_restart='./restart',
+        input_name='input.inp',
+        #force_field_dir=None,
+        run_name="cp2k_untitiled",
+
+        ):
+
+        self.struct_name = "coord.xyz"
+
+        super().__init__(work_base=work_base,
+            task_dir=task_dir,
+            make_func=make_func,
+            previous_file=previous_file,
+            disp_resource=disp_resource, 
+            mk_restart=mk_restart,
+            input_name=input_name,
+            post_func=post_func,
+            run_name=run_name,
+            )
+
+        self.set_structure(structure, cell=cell)
+
+        self._prepare_task()
+
+
+    def _prepare_task(self,**task_kwargs):
+        
+        partask = partial(dict,
+            task_work_path=str(self.rela_task_dir),
+            command= f"mpiexec.hydra cp2k.popt -i {self.input_name} ",
+            forward_files=[self.struct_name, f"{self.input_name}", f"{self.mk_restart}", "*"],
+            backward_files= ["*output*",f"{self.mk_restart}", "*pos*","*frc*", "*-1.ener"],
+            outlog="output.log",
+            errlog= "cp2k.err",
+        )
+        partask = partial(partask, **task_kwargs)
+        task = partask()
+
+        self._task = task
+        return task
+
+
+
+    def _dump_struct(self):
+
+        #2. 制作结构文件
+        specorder=None
+        print("dummy structure output")
+        with open(self.task_dir/self.struct_name,"w") as f:
+            
+            f.write(self.make_func())
+        pass
+    
+    def _dump_input(self):
+
+
+        self.input_txt = self.make_func()
+
+        dump_input(self.input_txt, self.task_dir, input_name=self.input_name, restart_dir=self.mk_restart)
+
+        pass
+
+
+
+    def _prepost(self):
+
+        from dateutil.parser import parse as time_parse
+
+        backward_files = self._task.backward_files
+        tmp = list(filter(lambda x: "output" in x,backward_files))
+        assert len(tmp) == 1
+        tmp = list(Path(self.task_dir).glob(tmp[0]))
+        assert len(tmp) == 1
+        cp2k_output = tmp[0]
+        print(tmp[0])
+
+        with open(self.task_dir/(cp2k_output),"r") as f:
+            line=True
+            while line:
+                line = f.readline()
+                if "PROGRAM STARTED AT" in line:
+                    time_str = line.split(" "*10)[-1]
+                    start_time = time_parse(time_str)
+                if "PROGRAM ENDED AT" in line:
+                    time_str = line.split(" "*10)[-1]
+                    end_time = time_parse(time_str)
+        delta = str(end_time - start_time)
+        with open(self.task_dir/("simple_report.txt"), "w") as f:
+
+            f.write(f"total calculation time: {delta}")
+
+
+    def submit(self):
+        
+        dummy_submit(self._task, self.submit_resource)
+
+        print("dummy submit successfully running")
+        #self._post()
 
         return True
 
-
-        

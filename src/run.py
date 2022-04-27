@@ -319,3 +319,65 @@ class RunCP2K(RunBase):
 
         return True
 
+
+
+class RunGroup():
+
+    #aggregate runs to submit together
+    # run_list will be the RunCP2K list
+
+    
+    def __init__(self, 
+        run_list: list, 
+        disp_resource,
+        submission_info=None,
+        auto_prepare=True,
+    ):
+
+        self.runmetas = run_list
+        self._check_work_base()
+        self._check_run_prepared()
+        self._load_resource(disp_resource)
+
+        self._generate_tasks()
+        self.auto_prepare = auto_prepare
+
+
+    def _generate_tasks(self):
+
+        self.tasks = [run._task for run in self.runmetas]
+
+    def _load_resource(self, resource):
+
+        self.submit_resource = resource
+
+    def _check_run_prepared(self):
+        
+        tags = []
+        for run in self.runmetas:
+            tags.append(run.prepare_tag)
+
+        self._all_prepared = all(tags)
+
+        return self._all_prepared
+
+    def _check_work_base(self):
+
+        tmp_base = self.runmetas[0].work_base
+        for run in self.runmetas:
+            assert run.work_base == tmp_base
+        self.work_base = tmp_base
+
+    def submit(self, **s_data):
+
+        if not self.auto_prepare:
+            assert self._all_prepared == True
+        else:
+            for run in self.runmetas:  
+                if run.prepare_tag == False:
+                    run.prepare()
+                    print("run runmeta have been prepared automatically.")
+
+        print("finished total dummy submission.")
+
+        return sub

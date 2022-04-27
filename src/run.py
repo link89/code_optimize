@@ -380,4 +380,4 @@ class RunGroup():
 
         print("finished total dummy submission.")
 
-        return sub
+        return True

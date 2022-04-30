@@ -154,7 +154,7 @@ def create_hpc_task_pipeline(base_dir: str, machines: Iterable[str]):
 
     # 实例化任务提交
     subHpcTask = SubmitHpcTask(SubmitHpcTaskData(hpc_job_ids=[]))
-    subHpcTask.prepareTask = prepareTask  # 建立依赖关系
+    subHpcTask.prepareTask = prepareTask  # 建立依赖关系, 这里需要指出实际中为了与具体任务解偶, 这里应使用接口而不是具体的任务来定义依赖
 
     # 实例化输出分析任务
     outputProcess = ProcessOutput(None)
